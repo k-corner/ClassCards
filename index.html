@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a73e8">
+  <title>LernKarten App</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <!-- KaTeX für Formeln (lokal nutzbar, kein Tracking) -->
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer
+    src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js">
+  </script>
+</head>
+<body>
+
+  <!-- DATENSCHUTZ-DIALOG (beim ersten Start) -->
+  <div id="privacy-dialog" class="dialog hidden">
+    <div class="dialog-box">
+      <h2>🔒 Datenschutzhinweis</h2>
+      <p>
+        Diese App speichert deinen Lernfortschritt <strong>nur lokal</strong>
+        auf deinem Gerät. Die gemeinsame Karteidatenbank wird über den
+        schulischen ByCS Drive geteilt. Es werden keine Daten an externe
+        Server gesendet.
+      </p>
+      <p>Weitere Infos findest du unter "Einstellungen → Datenschutz".</p>
+      <button id="accept-privacy" class="btn-primary">
+        ✅ Verstanden und akzeptieren
+      </button>
+    </div>
+  </div>
+
+  <!-- NAVIGATION -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-page="learn">
+      <span class="nav-icon">🃏</span>
+      <span class="nav-label">Lernen</span>
+    </button>
+    <button class="nav-btn" data-page="add">
+      <span class="nav-icon">➕</span>
+      <span class="nav-label">Neue Karte</span>
+    </button>
+    <button class="nav-btn" data-page="browse">
+      <span class="nav-icon">📚</span>
+      <span class="nav-label">Alle Karten</span>
+    </button>
+    <button class="nav-btn" data-page="sync">
+      <span class="nav-icon">🔄</span>
+      <span class="nav-label">Sync</span>
+    </button>
+    <button class="nav-btn" data-page="stats">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Statistik</span>
+    </button>
+  </nav>
+
+  <!-- HAUPTBEREICH -->
+  <main class="main-content">
+
+    <!-- SEITE: LERNEN -->
+    <section id="page-learn" class="page active">
+      <div class="page-header">
+        <h1>Lernen</h1>
+        <span id="cards-due-badge" class="badge">0 fällig</span>
+      </div>
+
+      <!-- Wenn keine Karten fällig -->
+      <div id="no-cards-due" class="empty-state hidden">
+        <div class="empty-icon">🎉</div>
+        <h2>Alle Karten gelernt!</h2>
+        <p>Du hast für heute alle fälligen Karten wiederholt.</p>
+        <p id="next-card-info">Nächste Karte fällig: morgen</p>
+      </div>
+
+      <!-- Karteikarte -->
+      <div id="flashcard-container" class="flashcard-container">
+        <div id="flashcard" class="flashcard">
+          <div class="flashcard-front">
+            <div class="card-category" id="card-category"></div>
+            <div class="card-question" id="card-question"></div>
+            <div class="card-images" id="card-images-front"></div>
+          </div>
+          <div class="flashcard-back hidden">
+            <div class="card-answer" id="card-answer"></div>
+            <div class="card-images" id="card-images-back"></div>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <button id="show-answer-btn" class="btn-primary btn-large">
+          Antwort zeigen
+        </button>
+
+        <div id="rating-buttons" class="rating-buttons hidden">
+          <button class="btn-rating btn-hard" data-rating="hard">
+            😕 Nicht gewusst
+          </button>
+          <button class="btn-rating btn-medium" data-rating="medium">
+            😐 Unsicher
+          </button>
+          <button class="btn-rating btn-easy" data-rating="easy">
+            😊 Gewusst!
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEITE: NEUE KARTE -->
+    <section id="page-add" class="page hidden">
+      <div class="page-header">
+        <h1>Neue Karteikarte</h1>
+      </div>
+
+      <form id="add-card-form" class="card-form">
+        <div class="form-group">
+          <label for="card-category-input">Kategorie / Thema</label>
+          <input
+            type="text"
+            id="card-category-input"
+            placeholder="z.B. Mathematik – Quadratische Gleichungen"
+            required
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="card-question-input">Frage</label>
+          <textarea
+            id="card-question-input"
+            rows="3"
+            placeholder="Was soll gefragt werden?"
+            required
+          ></textarea>
+          <small>Tipp: Für Formeln schreibe zwischen $$ z.B. $$x^2 + 2x = 0$$</small>
+        </div>
+
+        <div class="form-group">
+          <label for="card-answer-input">Antwort</label>
+          <textarea
+            id="card-answer-input"
+            rows="4"
+            placeholder="Die vollständige Antwort..."
+            required
+          ></textarea>
+        </div>
+
+        <!-- Bild-Upload -->
+        <div class="form-group">
+          <label>Bilder / Fotos</label>
+          <div class="image-input-area">
+            <button type="button" id="upload-image-btn" class="btn-secondary">
+              📷 Foto / Bild hinzufügen
+            </button>
+            <button type="button" id="draw-btn" class="btn-secondary">
+              ✏️ Zeichnen
+            </button>
+            <input type="file" id="image-input"
+              accept="image/*" multiple class="hidden">
+          </div>
+          <div id="image-preview" class="image-preview"></div>
+        </div>
+
+        <!-- Zeichenbereich -->
+        <div id="drawing-area" class="drawing-area hidden">
+          <canvas id="draw-canvas" width="600" height="300"></canvas>
+          <div class="drawing-controls">
+            <button type="button" id="clear-canvas">🗑️ Löschen</button>
+            <button type="button" id="save-drawing" class="btn-primary">
+              ✅ Zeichnung übernehmen
+            </button>
+            <input type="color" id="pen-color" value="#000000" title="Farbe">
+            <input type="range" id="pen-size" min="1" max="20"
+              value="3" title="Stiftgröße">
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary btn-large">
+          💾 Karte speichern
+        </button>
+      </form>
+    </section>
+
+    <!-- SEITE: ALLE KARTEN -->
+    <section id="page-browse" class="page hidden">
+      <div class="page-header">
+        <h1>Alle Karten</h1>
+        <input type="search" id="search-input"
+          placeholder="🔍 Suchen..." class="search-input">
+      </div>
+
+      <div id="category-filter" class="category-filter"></div>
+      <div id="cards-list" class="cards-list"></div>
+    </section>
+
+    <!-- SEITE: SYNCHRONISIEREN -->
+    <section id="page-sync" class="page hidden">
+      <div class="page-header">
+        <h1>Synchronisieren</h1>
+      </div>
+
+      <div class="sync-card">
+        <h2>📥 Datenbank importieren</h2>
+        <p>
+          Lade zuerst die aktuelle Datei von ByCS Drive herunter,
+          bevor du neue Karten erstellst!
+        </p>
+        <ol class="step-list">
+          <li>Öffne den Klassenordner auf ByCS Drive</li>
+          <li>Lade die aktuelle .json-Datei herunter</li>
+          <li>Klicke "Datei auswählen" und wähle die Datei aus</li>
+        </ol>
+        <label for="import-file" class="btn-secondary btn-large btn-block">
+          📂 Datei auswählen und importieren
+        </label>
+        <input type="file" id="import-file" accept=".json" class="hidden">
+        <div id="import-status" class="status-message hidden"></div>
+      </div>
+
+      <div class="sync-card">
+        <h2>📤 Datenbank exportieren</h2>
+        <p>
+          Neue Karten hinzugefügt? Exportiere die Datenbank und
+          lade sie auf ByCS Drive hoch.
+        </p>
+        <div id="export-info" class="info-box">
+          <strong>Aktuell in der Datenbank:</strong>
+          <span id="total-cards-count">0</span> Karteikarten
+        </div>
+        <button id="export-btn" class="btn-primary btn-large btn-block">
+          📥 Datenbank exportieren
+        </button>
+        <div class="hint-box">
+          💡 Nach dem Export: Datei auf ByCS Drive hochladen und
+          die Klasse informieren!
+        </div>
+      </div>
+
+      <div class="sync-card">
+        <h2>💾 Mein Lernfortschritt</h2>
+        <p>
+          Dein Lernfortschritt ist nur auf diesem Gerät gespeichert.
+          Sichere ihn, wenn du das Gerät wechselst.
+        </p>
+        <button id="export-progress-btn" class="btn-secondary btn-large btn-block">
+          💾 Fortschritt exportieren
+        </button>
+        <label for="import-progress-file" class="btn-secondary btn-large btn-block">
+          📂 Fortschritt importieren
+        </label>
+        <input type="file" id="import-progress-file" accept=".json" class="hidden">
+      </div>
+    </section>
+
+    <!-- SEITE: STATISTIK -->
+    <section id="page-stats" class="page hidden">
+      <div class="page-header">
+        <h1>Meine Statistik</h1>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="stat-total">0</div>
+          <div class="stat-label">Karten gesamt</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-due">0</div>
+          <div class="stat-label">Heute fällig</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-learned">0</div>
+          <div class="stat-label">Gelernte Karten</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-streak">0</div>
+          <div class="stat-label">Tage in Folge</div>
+        </div>
+      </div>
+
+      <div class="stats-section">
+        <h2>Nach Kategorie</h2>
+        <div id="category-stats"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="js/db.js"></script>
+  <script src="js/spaced.js"></script>
+  <script src="js/flashcards.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js');
+    }
+  </script>
+</body>
+</html>
