@@ -18,8 +18,9 @@ class App {
     this.setupLearnPage();
     this.setupAddPage();
     this.setupSyncPage();
+    this.setupLightbox();
     this.updateStats();
-    console.log('LernkartenApp gestartet ✅');
+    console.log('ClassCards gestartet ✅');
   }
 
   // Datenschutz-Einwilligung prüfen
@@ -54,12 +55,47 @@ class App {
         btn.classList.add('active');
         document.getElementById(`page-${pageId}`).classList.remove('hidden');
 
-        // Seite aktualisieren
         if (pageId === 'learn') this.updateLearnPage();
         if (pageId === 'browse') this.updateBrowsePage();
         if (pageId === 'stats') this.updateStats();
         if (pageId === 'sync') this.updateSyncPage();
       });
+    });
+  }
+
+  // ===== LIGHTBOX =====
+  setupLightbox() {
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    const closeBtn = document.getElementById('lightbox-close');
+    const backdrop = lightbox.querySelector('.lightbox-backdrop');
+
+    const closeLightbox = () => lightbox.classList.add('hidden');
+    closeBtn.addEventListener('click', closeLightbox);
+    backdrop.addEventListener('click', closeLightbox);
+
+    // Schließen mit Escape-Taste
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    // Globale Funktion zum Öffnen der Lightbox
+    this.openLightbox = (src) => {
+      lightboxImg.src = src;
+      lightbox.classList.remove('hidden');
+    };
+  }
+
+  // Hilfsfunktion: Bilder rendern (mit Zoom-Funktion)
+  renderImages(container, images) {
+    container.innerHTML = '';
+    (images || []).forEach(src => {
+      const img = document.createElement('img');
+      img.src = src;
+      img.className = 'card-image zoomable';
+      img.title = 'Tippen zum Vergrößern';
+      img.addEventListener('click', () => this.openLightbox(src));
+      container.appendChild(img);
     });
   }
 
@@ -107,15 +143,13 @@ class App {
     document.getElementById('card-answer').innerHTML =
       cardManager.renderFormulas(card.answer);
 
-    // Bilder anzeigen
-    const imgContainer = document.getElementById('card-images-front');
-    imgContainer.innerHTML = '';
-    (card.images || []).forEach(src => {
-      const img = document.createElement('img');
-      img.src = src;
-      img.className = 'card-image';
-      imgContainer.appendChild(img);
-    });
+    // Bilder Vorderseite (mit Zoom)
+    const imgFront = document.getElementById('card-images-front');
+    this.renderImages(imgFront, card.images);
+
+    // Bilder Rückseite (mit Zoom) – gleiche Bilder auch auf der Antwortseite
+    const imgBack = document.getElementById('card-images-back');
+    this.renderImages(imgBack, card.images);
 
     // Rückseite verstecken
     document.querySelector('.flashcard-back').classList.add('hidden');
@@ -125,7 +159,6 @@ class App {
 
   // Karte hinzufügen einrichten
   setupAddPage() {
-    // Bild-Upload
     document.getElementById('upload-image-btn').addEventListener('click', () => {
       document.getElementById('image-input').click();
     });
@@ -139,7 +172,6 @@ class App {
       }
     });
 
-    // Zeichenbereich
     document.getElementById('draw-btn').addEventListener('click', () => {
       document.getElementById('drawing-area').classList.toggle('hidden');
       const canvas = document.getElementById('draw-canvas');
@@ -162,7 +194,6 @@ class App {
       this.drawingCtx.clearRect(0, 0, canvas.width, canvas.height);
     });
 
-    // Formular absenden
     document.getElementById('add-card-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const card = await cardManager.saveCard({
@@ -202,7 +233,6 @@ class App {
 
   // Sync-Seite einrichten
   setupSyncPage() {
-    // Import
     document.getElementById('import-file').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -221,18 +251,15 @@ class App {
       }
     });
 
-    // Export
     document.getElementById('export-btn').addEventListener('click', async () => {
       const count = await syncManager.exportDatabase();
-      alert(`✅ ${count} Karten exportiert! Bitte Datei auf ByCS Drive hochladen.`);
+      alert(`✅ ${count} Karten exportiert (inkl. aller Bilder)!\nBitte Datei auf ByCS Drive hochladen.`);
     });
 
-    // Fortschritt exportieren
     document.getElementById('export-progress-btn').addEventListener('click', async () => {
       await syncManager.exportProgress();
     });
 
-    // Fortschritt importieren
     document.getElementById('import-progress-file').addEventListener('change',
       async (e) => {
         const file = e.target.files[0];
@@ -253,24 +280,89 @@ class App {
       this.currentCards.length;
   }
 
+  // ===== ALLE KARTEN – mit Vorschau und aufklappbarer Detailansicht =====
   updateBrowsePage() {
     const list = document.getElementById('cards-list');
+    const searchInput = document.getElementById('search-input');
+    const searchTerm = searchInput?.value?.toLowerCase() || '';
+
     list.innerHTML = '';
-    this.currentCards.forEach(card => {
+
+    const filtered = this.currentCards.filter(card =>
+      card.question.toLowerCase().includes(searchTerm) ||
+      card.answer.toLowerCase().includes(searchTerm) ||
+      card.category.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<p style="color:var(--mid);text-align:center;padding:20px;">Keine Karten gefunden.</p>';
+      return;
+    }
+
+    filtered.forEach(card => {
+      const progress = this.progressMap.get(card.id);
       const item = document.createElement('div');
       item.className = 'card-list-item';
-      const progress = this.progressMap.get(card.id);
+
+      // Bilder-HTML vorbereiten
+      const hasImages = card.images && card.images.length > 0;
+      const imagesHTML = hasImages
+        ? card.images.map(src =>
+            `<img src="${src}" class="card-list-image zoomable" alt="Kartenbild">`
+          ).join('')
+        : '';
+
       item.innerHTML = `
-        <div class="card-list-category">${card.category}</div>
-        <div class="card-list-question">
-          ${cardManager.renderFormulas(card.question)}
+        <div class="card-list-header" data-expanded="false">
+          <div>
+            <div class="card-list-category">${card.category}</div>
+            <div class="card-list-question">
+              ${cardManager.renderFormulas(card.question)}
+            </div>
+          </div>
+          <span class="card-list-toggle">▼</span>
         </div>
-        <div class="card-list-meta">
-          ${spacedRep.getNextReviewText(progress)}
+        <div class="card-list-detail hidden">
+          <div class="card-list-answer">
+            <strong>Antwort:</strong><br>
+            ${cardManager.renderFormulas(card.answer)}
+          </div>
+          ${hasImages ? `<div class="card-list-images">${imagesHTML}</div>` : ''}
+          <div class="card-list-meta">
+            ${spacedRep.getNextReviewText(progress)}
+            ${card.createdBy ? ` · Erstellt von: ${card.createdBy}` : ''}
+          </div>
         </div>
       `;
+
+      // Aufklappen / Zuklappen
+      const header = item.querySelector('.card-list-header');
+      const detail = item.querySelector('.card-list-detail');
+      const toggle = item.querySelector('.card-list-toggle');
+
+      header.addEventListener('click', () => {
+        const isExpanded = header.dataset.expanded === 'true';
+        detail.classList.toggle('hidden', isExpanded);
+        toggle.textContent = isExpanded ? '▼' : '▲';
+        header.dataset.expanded = String(!isExpanded);
+      });
+
+      // Zoom für Bilder in der Liste
+      item.querySelectorAll('.card-list-image.zoomable').forEach(img => {
+        img.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openLightbox(img.src);
+        });
+      });
+
       list.appendChild(item);
     });
+
+    // Suche live
+    if (!searchInput._listenerAdded) {
+      searchInput.addEventListener('input', () => this.updateBrowsePage());
+      searchInput._listenerAdded = true;
+    }
   }
 
   updateStats() {

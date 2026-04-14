@@ -34,7 +34,7 @@ class FlashcardManager {
   }
 
   // Bild komprimieren (für kleinere Dateigröße)
-  async compressImage(base64, maxWidth = 800, quality = 0.7) {
+  async compressImage(base64, maxWidth = 800, quality = 1) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {

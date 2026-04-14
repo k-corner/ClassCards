@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#1a73e8">
-  <title>LernKarten App</title>
+  <title>ClassCards</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="css/style.css">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -32,6 +32,15 @@
       <button id="accept-privacy" class="btn-primary">
         ✅ Verstanden und akzeptieren
       </button>
+    </div>
+  </div>
+
+  <!-- LIGHTBOX für Bild-Zoom -->
+  <div id="lightbox" class="lightbox hidden">
+    <div class="lightbox-backdrop"></div>
+    <div class="lightbox-content">
+      <button class="lightbox-close" id="lightbox-close">✕</button>
+      <img id="lightbox-img" src="" alt="Vergrößerte Ansicht">
     </div>
   </div>
 
@@ -65,7 +74,7 @@
     <!-- SEITE: LERNEN -->
     <section id="page-learn" class="page active">
       <div class="page-header">
-        <h1>Lernen</h1>
+        <h1>ClassCards</h1>
         <span id="cards-due-badge" class="badge">0 fällig</span>
       </div>
 
@@ -235,7 +244,8 @@
         </button>
         <div class="hint-box">
           💡 Nach dem Export: Datei auf ByCS Drive hochladen und
-          die Klasse informieren!
+          die Klasse informieren! Hinweis: Bilder sind in der Datei
+          eingebettet – die Datei kann dadurch einige MB groß werden.
         </div>
       </div>
 
@@ -300,4 +310,4 @@
     }
   </script>
 </body>
-</html>
+</html>		
