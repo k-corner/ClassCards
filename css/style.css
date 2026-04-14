@@ -690,3 +690,82 @@ body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+
+/* ===== "HEUTE FÄLLIG"-BUTTON IN KARTENÜBERSICHT ===== */
+.card-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-due-today {
+  background: none;
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  line-height: 1;
+}
+
+.btn-due-today:hover {
+  background: #fef7e0;
+  transform: scale(1.1);
+}
+
+.badge-due {
+  background: var(--orange);
+  color: #5a3a00;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+/* ===== SWIPE-ANIMATION ===== */
+.card-marked-due {
+  animation: swipe-confirm 0.4s ease;
+}
+
+@keyframes swipe-confirm {
+  0%   { transform: translateX(0);   background: white; }
+  30%  { transform: translateX(20px); background: #fef7e0; }
+  100% { transform: translateX(0);   background: white; }
+}
+
+/* ===== SWIPE-HINWEIS ===== */
+.card-list-swipe-hint {
+  font-size: 11px;
+  color: var(--mid);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* ===== CARD-LIST-HEADER FIX für Button-Alignment ===== */
+.card-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  cursor: pointer;
+  gap: 12px;
+}
+
+.card-list-header-text {
+  flex: 1;
+  min-width: 0; /* Verhindert Overflow */
+}
+
+/* ===== STATS-SECTION ===== */
+.stats-section {
+  margin-top: 16px;
+}
+
+.stats-section h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+

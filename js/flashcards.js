@@ -5,13 +5,14 @@ class FlashcardManager {
   // Neue Karteikarte erstellen
   createCard(data) {
     return {
-      id: Date.now(),                            // Einzigartiger Zeitstempel als ID
+      id: Date.now(),
       question: data.question.trim(),
-      answer: data.answer.trim(),
+      answer: data.answer ? data.answer.trim() : '',
       category: data.category.trim(),
-      images: data.images || [],                  // Array von Base64-Strings
+      images: data.images || [],        // Antwort-Bilder (Rückseite)
+      frontImages: data.frontImages || [], // Frage-Bilder (Vorderseite)
       createdAt: new Date().toISOString(),
-      timestamp: new Date().toISOString(),        // Für Merge-Logik
+      timestamp: new Date().toISOString(),
       createdBy: data.createdBy || 'Anonym'
     };
   }
@@ -33,8 +34,8 @@ class FlashcardManager {
     });
   }
 
-  // Bild komprimieren (für kleinere Dateigröße)
-  async compressImage(base64, maxWidth = 800, quality = 1) {
+  // Bild komprimieren – PNG für maximale Schärfe (besonders bei Formeln/Handschrift)
+  async compressImage(base64, maxWidth = 1200) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
@@ -44,7 +45,8 @@ class FlashcardManager {
         canvas.height = img.height * ratio;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        // PNG: verlustfrei, ideal für Formeln und Handschrift
+        resolve(canvas.toDataURL('image/png'));
       };
       img.src = base64;
     });
@@ -52,12 +54,12 @@ class FlashcardManager {
 
   // Formel-Rendering mit KaTeX
   renderFormulas(text) {
-    // Erkennt $$Formel$$ und rendert sie mit KaTeX
+    if (!text) return '';
     return text.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
       try {
         return katex.renderToString(formula, { throwOnError: false });
       } catch (e) {
-        return match; // Original zurückgeben bei Fehler
+        return match;
       }
     });
   }
@@ -110,12 +112,9 @@ class FlashcardManager {
 
     const stopDrawing = () => { isDrawing = false; };
 
-    // Mouse Events
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDrawing);
-
-    // Touch Events (Tablet/Handy)
     canvas.addEventListener('touchstart', startDrawing, { passive: false });
     canvas.addEventListener('touchmove', draw, { passive: false });
     canvas.addEventListener('touchend', stopDrawing);
@@ -123,7 +122,7 @@ class FlashcardManager {
     return ctx;
   }
 
-  // Canvas-Inhalt als Base64 exportieren
+  // Canvas als PNG exportieren (verlustfrei)
   canvasToBase64(canvas) {
     return canvas.toDataURL('image/png');
   }
