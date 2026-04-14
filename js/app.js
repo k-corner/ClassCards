@@ -8,7 +8,9 @@ class App {
     this.currentCardIndex = 0;
     this.pendingImages = [];
     this.drawingCtx = null;
-    this._lightboxOpen = null; // wird in init() gesetzt
+    this._lightboxOpen = null;
+    this.selectedCardIds = new Set(); // Für Mehrfachauswahl
+    this.selectionMode = false;
   }
 
   async init() {
@@ -16,7 +18,7 @@ class App {
     await this.checkPrivacyConsent();
     await this.loadData();
     this.setupNavigation();
-    this.setupLightbox();     // WICHTIG: vor setupLearnPage!
+    this.setupLightbox();
     this.setupLearnPage();
     this.setupAddPage();
     this.setupSyncPage();
@@ -24,7 +26,6 @@ class App {
     console.log('ClassCards gestartet ✅');
   }
 
-  // Datenschutz-Einwilligung prüfen
   async checkPrivacyConsent() {
     const accepted = await db.getSetting('privacyAccepted');
     if (!accepted) {
@@ -36,7 +37,6 @@ class App {
     }
   }
 
-  // Daten laden
   async loadData() {
     this.currentCards = await db.getAllCards();
     const progressList = await db.getAllProgress();
@@ -46,7 +46,6 @@ class App {
     this.currentCardIndex = 0;
   }
 
-  // Navigation zwischen Seiten
   setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -74,19 +73,16 @@ class App {
     const closeLightbox = () => lightbox.classList.add('hidden');
     closeBtn.addEventListener('click', closeLightbox);
     backdrop.addEventListener('click', closeLightbox);
-
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeLightbox();
     });
 
-    // Als Methode auf this speichern – jetzt garantiert vor allen anderen Aufrufen
     this._lightboxOpen = (src) => {
       lightboxImg.src = src;
       lightbox.classList.remove('hidden');
     };
   }
 
-  // Hilfsfunktion: Bilder rendern (mit Zoom-Funktion)
   renderImages(container, images) {
     container.innerHTML = '';
     (images || []).forEach(src => {
@@ -99,7 +95,7 @@ class App {
     });
   }
 
-  // Lernseite einrichten
+  // ===== LERNSEITE =====
   setupLearnPage() {
     document.getElementById('show-answer-btn').addEventListener('click', () => {
       document.querySelector('.flashcard-back').classList.remove('hidden');
@@ -121,7 +117,6 @@ class App {
     });
   }
 
-  // Lernseite aktualisieren
   updateLearnPage() {
     const badge = document.getElementById('cards-due-badge');
     const remaining = this.dueCards.length - this.currentCardIndex;
@@ -143,24 +138,19 @@ class App {
     document.getElementById('card-answer').innerHTML =
       cardManager.renderFormulas(card.answer || '');
 
-    // Vorderseite: NUR Bilder die als "Frage-Bilder" markiert sind
-    // (für ältere Karten ohne frontImages: leer lassen)
     const imgFront = document.getElementById('card-images-front');
     this.renderImages(imgFront, card.frontImages || []);
 
-    // Rückseite: Antwort-Bilder (images = Antwort-Bilder)
     const imgBack = document.getElementById('card-images-back');
     this.renderImages(imgBack, card.images || []);
 
-    // Rückseite verstecken
     document.querySelector('.flashcard-back').classList.add('hidden');
     document.getElementById('show-answer-btn').classList.remove('hidden');
     document.getElementById('rating-buttons').classList.add('hidden');
   }
 
-  // Karte hinzufügen einrichten
+  // ===== KARTE HINZUFÜGEN =====
   setupAddPage() {
-    // Bild-Upload
     document.getElementById('upload-image-btn').addEventListener('click', () => {
       document.getElementById('image-input').click();
     });
@@ -172,11 +162,9 @@ class App {
         this.pendingImages.push(compressed);
         this.updateImagePreview();
       }
-      // Antwort-Pflichtfeld dynamisch anpassen
       this.updateAnswerRequired();
     });
 
-    // Zeichnen
     document.getElementById('draw-btn').addEventListener('click', () => {
       document.getElementById('drawing-area').classList.toggle('hidden');
       const canvas = document.getElementById('draw-canvas');
@@ -197,18 +185,22 @@ class App {
       this.updateImagePreview();
       document.getElementById('drawing-area').classList.add('hidden');
       this.drawingCtx.clearRect(0, 0, canvas.width, canvas.height);
-      // Antwort-Pflichtfeld dynamisch anpassen
       this.updateAnswerRequired();
     });
 
-    // Formular absenden
+    // Thema-Autocomplete
+    const categoryInput = document.getElementById('card-category-input');
+    const datalist = document.getElementById('category-suggestions');
+    categoryInput.addEventListener('focus', () => {
+      this.updateCategorySuggestions(datalist);
+    });
+
     document.getElementById('add-card-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const answerText = document.getElementById('card-answer-input').value.trim();
       const hasImages = this.pendingImages.length > 0;
 
-      // Validierung: Entweder Text-Antwort ODER Bild muss vorhanden sein
       if (!answerText && !hasImages) {
         alert('Bitte gib eine Textantwort ein oder füge ein Bild hinzu.');
         return;
@@ -217,9 +209,9 @@ class App {
       const card = await cardManager.saveCard({
         question: document.getElementById('card-question-input').value,
         answer: answerText,
-        category: document.getElementById('card-category-input').value,
-        images: [...this.pendingImages],  // Antwort-Bilder
-        frontImages: [],                   // Vorderseiten-Bilder (für zukünftige Erweiterung)
+        category: categoryInput.value,
+        images: [...this.pendingImages],
+        frontImages: [],
         createdBy: await db.getSetting('userName') || 'Anonym'
       });
 
@@ -232,13 +224,22 @@ class App {
     });
   }
 
-  // Antwort-Pflichtfeld dynamisch setzen
+  // Vorhandene Themen als Autocomplete-Optionen aktualisieren
+  updateCategorySuggestions(datalist) {
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+    datalist.innerHTML = '';
+    categories.forEach(cat => {
+      const option = document.createElement('option');
+      option.value = cat;
+      datalist.appendChild(option);
+    });
+  }
+
   updateAnswerRequired() {
     const answerInput = document.getElementById('card-answer-input');
     const hasImages = this.pendingImages.length > 0;
     answerInput.required = !hasImages;
 
-    // Visuelles Feedback
     const label = answerInput.previousElementSibling;
     if (label && label.tagName === 'LABEL') {
       label.textContent = hasImages
@@ -246,7 +247,6 @@ class App {
         : 'Antwort *';
     }
 
-    // Placeholder anpassen
     answerInput.placeholder = hasImages
       ? 'Optional: Zusätzliche Textantwort...'
       : 'Die vollständige Antwort... (Pflichtfeld, wenn kein Bild)';
@@ -274,7 +274,7 @@ class App {
     });
   }
 
-  // Sync-Seite einrichten
+  // ===== SYNC =====
   setupSyncPage() {
     document.getElementById('import-file').addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -319,15 +319,17 @@ class App {
   }
 
   updateSyncPage() {
-    document.getElementById('total-cards-count').textContent =
-      this.currentCards.length;
+    document.getElementById('total-cards-count').textContent = this.currentCards.length;
   }
 
-  // ===== ALLE KARTEN – Aufklappbar + "Heute fällig" Button + Swipe =====
+  // ===== ALLE KARTEN – Browse-Seite =====
   updateBrowsePage() {
     const list = document.getElementById('cards-list');
     const searchInput = document.getElementById('search-input');
     const searchTerm = searchInput?.value?.toLowerCase() || '';
+
+    // Toolbar rendern (Auswahl-Aktionen)
+    this.renderBrowseToolbar();
 
     list.innerHTML = '';
 
@@ -346,11 +348,13 @@ class App {
     filtered.forEach(card => {
       const progress = this.progressMap.get(card.id);
       const isDueToday = !progress || progress.nextReview <= Date.now();
+      const isSelected = this.selectedCardIds.has(card.id);
 
       const item = document.createElement('div');
-      item.className = 'card-list-item';
+      item.className = 'card-list-item' + (isSelected ? ' card-selected' : '');
+      item.dataset.id = card.id;
 
-      // Swipe-Unterstützung für "Heute fällig"
+      // Swipe-Unterstützung
       let touchStartX = 0;
       let touchStartY = 0;
 
@@ -362,13 +366,12 @@ class App {
       item.addEventListener('touchend', (e) => {
         const dx = e.changedTouches[0].clientX - touchStartX;
         const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
-        // Swipe nach rechts (mind. 80px, nicht zu viel vertikal)
-        if (dx > 80 && dy < 40) {
+        // Swipe nach LINKS → heute fällig
+        if (dx < -80 && dy < 40) {
           this.markCardDueToday(card.id, item);
         }
       }, { passive: true });
 
-      // Bilder-HTML vorbereiten (nur Antwort-Bilder in der Übersicht)
       const hasImages = card.images && card.images.length > 0;
       const imagesHTML = hasImages
         ? card.images.map(src =>
@@ -376,7 +379,6 @@ class App {
           ).join('')
         : '';
 
-      // Antwort-Text (kann leer sein wenn nur Bild)
       const answerHTML = card.answer
         ? `<div class="card-list-answer">
              <strong>Antwort:</strong><br>
@@ -386,6 +388,10 @@ class App {
 
       item.innerHTML = `
         <div class="card-list-header" data-expanded="false">
+          <div class="card-list-checkbox-wrap">
+            <input type="checkbox" class="card-checkbox" data-id="${card.id}"
+              ${isSelected ? 'checked' : ''} title="Auswählen">
+          </div>
           <div class="card-list-header-text">
             <div class="card-list-category">${card.category}</div>
             <div class="card-list-question">
@@ -394,9 +400,7 @@ class App {
           </div>
           <div class="card-list-header-actions">
             ${!isDueToday
-              ? `<button class="btn-due-today" title="Heute wiederholen" data-id="${card.id}">
-                   📅
-                 </button>`
+              ? `<button class="btn-due-today" title="Heute wiederholen" data-id="${card.id}">📅</button>`
               : `<span class="badge-due">fällig</span>`
             }
             <span class="card-list-toggle">▼</span>
@@ -409,25 +413,41 @@ class App {
             ${spacedRep.getNextReviewText(progress)}
             ${card.createdBy ? ` · Erstellt von: ${card.createdBy}` : ''}
           </div>
-          <div class="card-list-swipe-hint">
-            💡 Tipp: Nach rechts wischen → heute fällig setzen
+          <div class="card-list-swipe-hint">💡 Nach links wischen → heute fällig</div>
+          <div class="card-list-actions">
+            <button class="btn-edit-card btn-secondary-small" data-id="${card.id}">✏️ Bearbeiten</button>
+            <button class="btn-delete-card btn-danger-small" data-id="${card.id}">🗑️ Löschen</button>
           </div>
         </div>
       `;
 
-      // Aufklappen / Zuklappen (nur wenn NICHT auf Button geklickt)
+      // Aufklappen
       const header = item.querySelector('.card-list-header');
       const detail = item.querySelector('.card-list-detail');
       const toggle = item.querySelector('.card-list-toggle');
 
       header.addEventListener('click', (e) => {
-        // Klick auf Button nicht weiterleiten
         if (e.target.closest('.btn-due-today')) return;
+        if (e.target.closest('.card-checkbox')) return;
 
         const isExpanded = header.dataset.expanded === 'true';
         detail.classList.toggle('hidden', isExpanded);
         toggle.textContent = isExpanded ? '▼' : '▲';
         header.dataset.expanded = String(!isExpanded);
+      });
+
+      // Checkbox für Mehrfachauswahl
+      const checkbox = item.querySelector('.card-checkbox');
+      checkbox.addEventListener('change', (e) => {
+        e.stopPropagation();
+        if (checkbox.checked) {
+          this.selectedCardIds.add(card.id);
+          item.classList.add('card-selected');
+        } else {
+          this.selectedCardIds.delete(card.id);
+          item.classList.remove('card-selected');
+        }
+        this.renderBrowseToolbar();
       });
 
       // "Heute fällig"-Button
@@ -438,6 +458,22 @@ class App {
           this.markCardDueToday(card.id, item);
         });
       }
+
+      // Bearbeiten-Button
+      item.querySelector('.btn-edit-card').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openEditModal(card);
+      });
+
+      // Löschen-Button
+      item.querySelector('.btn-delete-card').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm(`Karte löschen?\n"${card.question.substring(0, 60)}..."`)) {
+          await db.deleteCard(card.id);
+          await this.loadData();
+          this.updateBrowsePage();
+        }
+      });
 
       // Zoom für Bilder
       item.querySelectorAll('.card-list-image.zoomable').forEach(img => {
@@ -457,18 +493,244 @@ class App {
     }
   }
 
-  // Karte sofort als "heute fällig" markieren
+  // ===== BROWSE TOOLBAR (Mehrfachauswahl-Aktionen) =====
+  renderBrowseToolbar() {
+    let toolbar = document.getElementById('browse-toolbar');
+    if (!toolbar) {
+      toolbar = document.createElement('div');
+      toolbar.id = 'browse-toolbar';
+      toolbar.className = 'browse-toolbar';
+      const browseHeader = document.querySelector('#page-browse .page-header');
+      browseHeader.insertAdjacentElement('afterend', toolbar);
+    }
+
+    const count = this.selectedCardIds.size;
+
+    if (count === 0) {
+      toolbar.innerHTML = `
+        <div class="toolbar-hint">☑️ Checkbox antippen für Mehrfachauswahl</div>
+      `;
+      return;
+    }
+
+    // Alle vorhandenen Themen für Datalist
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+    const catOptions = categories.map(c => `<option value="${c}">`).join('');
+
+    toolbar.innerHTML = `
+      <div class="toolbar-selection-info">
+        <strong>${count} Karte${count > 1 ? 'n' : ''} ausgewählt</strong>
+        <button id="toolbar-deselect-all" class="btn-text">✕ Auswahl aufheben</button>
+      </div>
+      <div class="toolbar-actions">
+        <button id="toolbar-delete-selected" class="btn-danger-small">
+          🗑️ ${count} löschen
+        </button>
+        <div class="toolbar-category-wrap">
+          <input
+            type="text"
+            id="toolbar-category-input"
+            list="toolbar-category-suggestions"
+            placeholder="Thema für Auswahl..."
+            class="toolbar-category-input"
+          >
+          <datalist id="toolbar-category-suggestions">${catOptions}</datalist>
+          <button id="toolbar-set-category" class="btn-primary-small">
+            🏷️ Thema setzen
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('toolbar-deselect-all').addEventListener('click', () => {
+      this.selectedCardIds.clear();
+      this.updateBrowsePage();
+    });
+
+    document.getElementById('toolbar-delete-selected').addEventListener('click', async () => {
+      if (confirm(`${count} Karte${count > 1 ? 'n' : ''} wirklich löschen?`)) {
+        for (const id of this.selectedCardIds) {
+          await db.deleteCard(id);
+        }
+        this.selectedCardIds.clear();
+        await this.loadData();
+        this.updateBrowsePage();
+      }
+    });
+
+    document.getElementById('toolbar-set-category').addEventListener('click', async () => {
+      const newCat = document.getElementById('toolbar-category-input').value.trim();
+      if (!newCat) {
+        alert('Bitte ein Thema eingeben.');
+        return;
+      }
+      for (const id of this.selectedCardIds) {
+        const card = this.currentCards.find(c => c.id === id);
+        if (card) {
+          card.category = newCat;
+          await db.saveCard(card);
+        }
+      }
+      this.selectedCardIds.clear();
+      await this.loadData();
+      this.updateBrowsePage();
+      alert(`✅ Thema für ${count} Karte${count > 1 ? 'n' : ''} geändert.`);
+    });
+  }
+
+  // ===== EDIT-MODAL =====
+  openEditModal(card) {
+    // Modal falls vorhanden entfernen
+    document.getElementById('edit-modal')?.remove();
+
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+    const catOptions = categories.map(c => `<option value="${c}">`).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'edit-modal';
+    modal.className = 'modal-overlay';
+
+    modal.innerHTML = `
+      <div class="modal-box">
+        <div class="modal-header">
+          <h2>✏️ Karte bearbeiten</h2>
+          <button id="edit-modal-close" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="form-group">
+          <label>Kategorie / Thema</label>
+          <input type="text" id="edit-category"
+            list="edit-category-suggestions"
+            value="${this.escapeHtml(card.category)}"
+            class="edit-input"
+          >
+          <datalist id="edit-category-suggestions">${catOptions}</datalist>
+        </div>
+
+        <div class="form-group">
+          <label>Frage</label>
+          <textarea id="edit-question" rows="3" class="edit-input">${this.escapeHtml(card.question)}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Antwort</label>
+          <textarea id="edit-answer" rows="4" class="edit-input">${this.escapeHtml(card.answer || '')}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Bilder (Antwortseite)</label>
+          <div id="edit-image-preview" class="image-preview"></div>
+          <button type="button" id="edit-upload-btn" class="btn-secondary" style="margin-top:8px">
+            📷 Bild hinzufügen
+          </button>
+          <input type="file" id="edit-image-input" accept="image/*" multiple class="hidden">
+        </div>
+
+        <div class="modal-footer">
+          <button id="edit-cancel-btn" class="btn-secondary">Abbrechen</button>
+          <button id="edit-save-btn" class="btn-primary">💾 Speichern</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Bilder anzeigen (mit Lösch-Option)
+    let editImages = [...(card.images || [])];
+    const renderEditImages = () => {
+      const preview = document.getElementById('edit-image-preview');
+      preview.innerHTML = '';
+      editImages.forEach((src, i) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'image-preview-item';
+        const img = document.createElement('img');
+        img.src = src;
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '✕';
+        removeBtn.type = 'button';
+        removeBtn.onclick = () => {
+          editImages.splice(i, 1);
+          renderEditImages();
+        };
+        wrapper.appendChild(img);
+        wrapper.appendChild(removeBtn);
+        preview.appendChild(wrapper);
+      });
+    };
+    renderEditImages();
+
+    // Bild-Upload im Modal
+    document.getElementById('edit-upload-btn').addEventListener('click', () => {
+      document.getElementById('edit-image-input').click();
+    });
+    document.getElementById('edit-image-input').addEventListener('change', async (e) => {
+      for (const file of e.target.files) {
+        const base64 = await cardManager.imageToBase64(file);
+        const compressed = await cardManager.compressImage(base64);
+        editImages.push(compressed);
+      }
+      renderEditImages();
+    });
+
+    // Schließen
+    const closeModal = () => modal.remove();
+    document.getElementById('edit-modal-close').addEventListener('click', closeModal);
+    document.getElementById('edit-cancel-btn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Speichern
+    document.getElementById('edit-save-btn').addEventListener('click', async () => {
+      const newQuestion = document.getElementById('edit-question').value.trim();
+      const newAnswer = document.getElementById('edit-answer').value.trim();
+      const newCategory = document.getElementById('edit-category').value.trim();
+
+      if (!newQuestion || !newCategory) {
+        alert('Frage und Kategorie dürfen nicht leer sein.');
+        return;
+      }
+      if (!newAnswer && editImages.length === 0) {
+        alert('Bitte Antwort eingeben oder Bild hinzufügen.');
+        return;
+      }
+
+      const updatedCard = {
+        ...card,
+        question: newQuestion,
+        answer: newAnswer,
+        category: newCategory,
+        images: editImages,
+        timestamp: new Date().toISOString()
+      };
+
+      await db.saveCard(updatedCard);
+      await this.loadData();
+      closeModal();
+      this.updateBrowsePage();
+    });
+  }
+
+  // HTML-Sonderzeichen escapen (für modal value="...")
+  escapeHtml(str) {
+    return (str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // ===== HEUTE FÄLLIG =====
   async markCardDueToday(cardId, itemElement) {
     const progress = this.progressMap.get(cardId) || {};
     const updated = {
       ...progress,
       cardId,
-      nextReview: Date.now() - 1000 // Eine Sekunde in der Vergangenheit = fällig
+      nextReview: Date.now() - 1000
     };
     await db.saveProgress(cardId, updated);
     this.progressMap.set(cardId, updated);
 
-    // Visuelles Feedback
     itemElement.classList.add('card-marked-due');
     const actionsDiv = itemElement.querySelector('.card-list-header-actions');
     if (actionsDiv) {
@@ -481,7 +743,6 @@ class App {
       ));
     }
 
-    // Lernseite-Badge aktualisieren
     await this.loadData();
     const badge = document.getElementById('cards-due-badge');
     badge.textContent = `${this.dueCards.length} fällig`;
@@ -498,6 +759,5 @@ class App {
   }
 }
 
-// App starten
 const app = new App();
 app.init().catch(console.error);
