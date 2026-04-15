@@ -9,8 +9,8 @@ class App {
     this.pendingImages = [];
     this.drawingCtx = null;
     this._lightboxOpen = null;
-    this.selectedCardIds = new Set(); // Für Mehrfachauswahl
-    this.selectionMode = false;
+    this.selectedCardIds = new Set();
+    this.activeFilter = null; // aktiver Kapitel-Filter
   }
 
   async init() {
@@ -42,8 +42,19 @@ class App {
     const progressList = await db.getAllProgress();
     this.progressMap = new Map(progressList.map(p => [p.cardId, p]));
     this.dueCards = spacedRep.getDueCards(this.currentCards, this.progressMap);
-    this.dueCards = spacedRep.sortByPriority(this.dueCards, this.progressMap);
+    // Zufällige Reihenfolge statt nach Erstellung
+    this.dueCards = this.shuffleArray(this.dueCards);
     this.currentCardIndex = 0;
+  }
+
+  // Fisher-Yates Shuffle
+  shuffleArray(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
   }
 
   setupNavigation() {
@@ -188,7 +199,6 @@ class App {
       this.updateAnswerRequired();
     });
 
-    // Thema-Autocomplete
     const categoryInput = document.getElementById('card-category-input');
     const datalist = document.getElementById('category-suggestions');
     categoryInput.addEventListener('focus', () => {
@@ -224,7 +234,6 @@ class App {
     });
   }
 
-  // Vorhandene Themen als Autocomplete-Optionen aktualisieren
   updateCategorySuggestions(datalist) {
     const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
     datalist.innerHTML = '';
@@ -303,19 +312,38 @@ class App {
       await syncManager.exportProgress();
     });
 
-    document.getElementById('import-progress-file').addEventListener('change',
-      async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        try {
-          const count = await syncManager.importProgress(file);
-          alert(`✅ ${count} Fortschrittseinträge importiert!`);
-          await this.loadData();
-        } catch (err) {
-          alert('❌ Fehler: ' + err.message);
-        }
+    document.getElementById('import-progress-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const count = await syncManager.importProgress(file);
+        alert(`✅ ${count} Fortschrittseinträge importiert!`);
+        await this.loadData();
+      } catch (err) {
+        alert('❌ Fehler: ' + err.message);
       }
-    );
+    });
+
+    // Datenbank löschen
+    document.getElementById('delete-db-btn').addEventListener('click', async () => {
+      if (!confirm('⚠️ Alle Karteikarten wirklich löschen?\nDiese Aktion kann nicht rückgängig gemacht werden!')) return;
+      const confirmText = prompt('Zur Bestätigung bitte "LÖSCHEN" eintippen:');
+      if (confirmText !== 'LÖSCHEN') { alert('Abgebrochen.'); return; }
+      const cards = await db.getAllCards();
+      for (const card of cards) await db.deleteCard(card.id);
+      await this.loadData();
+      this.updateSyncPage();
+      alert('✅ Alle Karteikarten wurden gelöscht.');
+    });
+
+    // Lernfortschritt zurücksetzen
+    document.getElementById('reset-progress-btn').addEventListener('click', async () => {
+      if (!confirm('⚠️ Deinen gesamten Lernfortschritt wirklich zurücksetzen?\nAlle Karten werden wieder als "neu" markiert.')) return;
+      await db.clearProgress();
+      await this.loadData();
+      this.updateSyncPage();
+      alert('✅ Lernfortschritt wurde zurückgesetzt.');
+    });
   }
 
   updateSyncPage() {
@@ -323,25 +351,158 @@ class App {
   }
 
   // ===== ALLE KARTEN – Browse-Seite =====
-  updateBrowsePage() {
-    const list = document.getElementById('cards-list');
+  getFilteredCards() {
     const searchInput = document.getElementById('search-input');
     const searchTerm = searchInput?.value?.toLowerCase() || '';
+    return this.currentCards.filter(card => {
+      const matchesSearch =
+        card.question.toLowerCase().includes(searchTerm) ||
+        (card.answer || '').toLowerCase().includes(searchTerm) ||
+        card.category.toLowerCase().includes(searchTerm);
+      const matchesFilter = !this.activeFilter || card.category === this.activeFilter;
+      return matchesSearch && matchesFilter;
+    });
+  }
 
-    // Toolbar rendern (Auswahl-Aktionen)
+  updateBrowsePage() {
+    this.renderCategoryFilter();
     this.renderBrowseToolbar();
+    this.renderCardList();
 
+    const searchInput = document.getElementById('search-input');
+    if (!searchInput._listenerAdded) {
+      searchInput.addEventListener('input', () => this.updateBrowsePage());
+      searchInput._listenerAdded = true;
+    }
+  }
+
+  // ===== KAPITEL-FILTER =====
+  renderCategoryFilter() {
+    const container = document.getElementById('category-filter');
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+
+    container.innerHTML = '';
+
+    if (categories.length === 0) return;
+
+    // "Alle"-Button
+    const allBtn = document.createElement('button');
+    allBtn.className = 'filter-chip' + (!this.activeFilter ? ' active' : '');
+    allBtn.textContent = 'Alle';
+    allBtn.addEventListener('click', () => {
+      this.activeFilter = null;
+      this.updateBrowsePage();
+    });
+    container.appendChild(allBtn);
+
+    categories.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-chip' + (this.activeFilter === cat ? ' active' : '');
+      btn.textContent = cat;
+      btn.addEventListener('click', () => {
+        this.activeFilter = this.activeFilter === cat ? null : cat;
+        this.updateBrowsePage();
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  // ===== BROWSE TOOLBAR =====
+  renderBrowseToolbar() {
+    let toolbar = document.getElementById('browse-toolbar');
+    if (!toolbar) {
+      toolbar = document.createElement('div');
+      toolbar.id = 'browse-toolbar';
+      toolbar.className = 'browse-toolbar';
+      const filterContainer = document.getElementById('category-filter');
+      filterContainer.insertAdjacentElement('afterend', toolbar);
+    }
+
+    const count = this.selectedCardIds.size;
+    const filtered = this.getFilteredCards();
+
+    if (count === 0) {
+      toolbar.innerHTML = '';
+      toolbar.style.display = 'none';
+      return;
+    }
+
+    toolbar.style.display = 'flex';
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+    const catOptions = categories.map(c => `<option value="${c}">`).join('');
+    const allSelected = filtered.every(c => this.selectedCardIds.has(c.id));
+
+    toolbar.innerHTML = `
+      <div class="toolbar-selection-info">
+        <strong>${count} ausgewählt</strong>
+        <button id="toolbar-select-all" class="btn-chip">
+          ${allSelected ? '✕ Alle abwählen' : '☑️ Alle auswählen'}
+        </button>
+        <button id="toolbar-deselect-all" class="btn-chip btn-chip-muted">Aufheben</button>
+      </div>
+      <div class="toolbar-actions">
+        <button id="toolbar-delete-selected" class="btn-action-danger">
+          🗑️ Löschen
+        </button>
+        <div class="toolbar-category-wrap">
+          <input type="text" id="toolbar-category-input"
+            list="toolbar-category-suggestions"
+            placeholder="Thema zuweisen..."
+            class="toolbar-category-input">
+          <datalist id="toolbar-category-suggestions">${catOptions}</datalist>
+          <button id="toolbar-set-category" class="btn-action-primary">
+            🏷️ Setzen
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('toolbar-select-all').addEventListener('click', () => {
+      if (allSelected) {
+        filtered.forEach(c => this.selectedCardIds.delete(c.id));
+      } else {
+        filtered.forEach(c => this.selectedCardIds.add(c.id));
+      }
+      this.updateBrowsePage();
+    });
+
+    document.getElementById('toolbar-deselect-all').addEventListener('click', () => {
+      this.selectedCardIds.clear();
+      this.updateBrowsePage();
+    });
+
+    document.getElementById('toolbar-delete-selected').addEventListener('click', async () => {
+      if (confirm(`${count} Karte${count > 1 ? 'n' : ''} wirklich löschen?`)) {
+        for (const id of this.selectedCardIds) await db.deleteCard(id);
+        this.selectedCardIds.clear();
+        await this.loadData();
+        this.updateBrowsePage();
+      }
+    });
+
+    document.getElementById('toolbar-set-category').addEventListener('click', async () => {
+      const newCat = document.getElementById('toolbar-category-input').value.trim();
+      if (!newCat) { alert('Bitte ein Thema eingeben.'); return; }
+      for (const id of this.selectedCardIds) {
+        const card = this.currentCards.find(c => c.id === id);
+        if (card) { card.category = newCat; await db.saveCard(card); }
+      }
+      this.selectedCardIds.clear();
+      await this.loadData();
+      this.updateBrowsePage();
+      alert(`✅ Thema für ${count} Karte${count > 1 ? 'n' : ''} geändert.`);
+    });
+  }
+
+  // ===== KARTENLISTE RENDERN =====
+  renderCardList() {
+    const list = document.getElementById('cards-list');
     list.innerHTML = '';
 
-    const filtered = this.currentCards.filter(card =>
-      card.question.toLowerCase().includes(searchTerm) ||
-      (card.answer || '').toLowerCase().includes(searchTerm) ||
-      card.category.toLowerCase().includes(searchTerm)
-    );
+    const filtered = this.getFilteredCards();
 
     if (filtered.length === 0) {
-      list.innerHTML =
-        '<p style="color:var(--mid);text-align:center;padding:20px;">Keine Karten gefunden.</p>';
+      list.innerHTML = '<p style="color:var(--mid);text-align:center;padding:20px;">Keine Karten gefunden.</p>';
       return;
     }
 
@@ -354,55 +515,39 @@ class App {
       item.className = 'card-list-item' + (isSelected ? ' card-selected' : '');
       item.dataset.id = card.id;
 
-      // Swipe-Unterstützung
-      let touchStartX = 0;
-      let touchStartY = 0;
-
+      // Swipe nach links → heute fällig
+      let touchStartX = 0, touchStartY = 0;
       item.addEventListener('touchstart', (e) => {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
       }, { passive: true });
-
       item.addEventListener('touchend', (e) => {
         const dx = e.changedTouches[0].clientX - touchStartX;
         const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
-        // Swipe nach LINKS → heute fällig
-        if (dx < -80 && dy < 40) {
-          this.markCardDueToday(card.id, item);
-        }
+        if (dx < -80 && dy < 40) this.markCardDueToday(card.id, item);
       }, { passive: true });
 
       const hasImages = card.images && card.images.length > 0;
-      const imagesHTML = hasImages
-        ? card.images.map(src =>
-            `<img src="${src}" class="card-list-image zoomable" alt="Kartenbild">`
-          ).join('')
-        : '';
-
       const answerHTML = card.answer
-        ? `<div class="card-list-answer">
-             <strong>Antwort:</strong><br>
-             ${cardManager.renderFormulas(card.answer)}
-           </div>`
+        ? `<div class="card-list-answer"><strong>Antwort:</strong><br>${cardManager.renderFormulas(card.answer)}</div>`
+        : '';
+      const imagesHTML = hasImages
+        ? card.images.map(src => `<img src="${src}" class="card-list-image zoomable" alt="Kartenbild">`).join('')
         : '';
 
       item.innerHTML = `
         <div class="card-list-header" data-expanded="false">
-          <div class="card-list-checkbox-wrap">
-            <input type="checkbox" class="card-checkbox" data-id="${card.id}"
-              ${isSelected ? 'checked' : ''} title="Auswählen">
-          </div>
+          <input type="checkbox" class="card-checkbox" data-id="${card.id}" ${isSelected ? 'checked' : ''}>
           <div class="card-list-header-text">
             <div class="card-list-category">${card.category}</div>
-            <div class="card-list-question">
-              ${cardManager.renderFormulas(card.question)}
-            </div>
+            <div class="card-list-question">${cardManager.renderFormulas(card.question)}</div>
           </div>
           <div class="card-list-header-actions">
             ${!isDueToday
-              ? `<button class="btn-due-today" title="Heute wiederholen" data-id="${card.id}">📅</button>`
-              : `<span class="badge-due">fällig</span>`
-            }
+              ? `<button class="btn-icon btn-due-today" title="Heute wiederholen" data-id="${card.id}">📅</button>`
+              : `<span class="badge-due">fällig</span>`}
+            <button class="btn-icon btn-edit-card" title="Bearbeiten" data-id="${card.id}">✏️</button>
+            <button class="btn-icon btn-delete-card" title="Löschen" data-id="${card.id}">🗑️</button>
             <span class="card-list-toggle">▼</span>
           </div>
         </div>
@@ -411,13 +556,9 @@ class App {
           ${hasImages ? `<div class="card-list-images">${imagesHTML}</div>` : ''}
           <div class="card-list-meta">
             ${spacedRep.getNextReviewText(progress)}
-            ${card.createdBy ? ` · Erstellt von: ${card.createdBy}` : ''}
+            ${card.createdBy ? ` · von: ${card.createdBy}` : ''}
           </div>
           <div class="card-list-swipe-hint">💡 Nach links wischen → heute fällig</div>
-          <div class="card-list-actions">
-            <button class="btn-edit-card btn-secondary-small" data-id="${card.id}">✏️ Bearbeiten</button>
-            <button class="btn-delete-card btn-danger-small" data-id="${card.id}">🗑️ Löschen</button>
-          </div>
         </div>
       `;
 
@@ -425,32 +566,25 @@ class App {
       const header = item.querySelector('.card-list-header');
       const detail = item.querySelector('.card-list-detail');
       const toggle = item.querySelector('.card-list-toggle');
-
       header.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-due-today')) return;
+        if (e.target.closest('.btn-icon')) return;
         if (e.target.closest('.card-checkbox')) return;
-
         const isExpanded = header.dataset.expanded === 'true';
         detail.classList.toggle('hidden', isExpanded);
         toggle.textContent = isExpanded ? '▼' : '▲';
         header.dataset.expanded = String(!isExpanded);
       });
 
-      // Checkbox für Mehrfachauswahl
-      const checkbox = item.querySelector('.card-checkbox');
-      checkbox.addEventListener('change', (e) => {
+      // Checkbox
+      item.querySelector('.card-checkbox').addEventListener('change', (e) => {
         e.stopPropagation();
-        if (checkbox.checked) {
-          this.selectedCardIds.add(card.id);
-          item.classList.add('card-selected');
-        } else {
-          this.selectedCardIds.delete(card.id);
-          item.classList.remove('card-selected');
-        }
+        if (e.target.checked) this.selectedCardIds.add(card.id);
+        else this.selectedCardIds.delete(card.id);
+        item.classList.toggle('card-selected', e.target.checked);
         this.renderBrowseToolbar();
       });
 
-      // "Heute fällig"-Button
+      // Heute fällig
       const dueBtn = item.querySelector('.btn-due-today');
       if (dueBtn) {
         dueBtn.addEventListener('click', (e) => {
@@ -459,128 +593,33 @@ class App {
         });
       }
 
-      // Bearbeiten-Button
+      // Bearbeiten
       item.querySelector('.btn-edit-card').addEventListener('click', (e) => {
         e.stopPropagation();
         this.openEditModal(card);
       });
 
-      // Löschen-Button
+      // Löschen
       item.querySelector('.btn-delete-card').addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm(`Karte löschen?\n"${card.question.substring(0, 60)}..."`)) {
+        if (confirm(`Karte löschen?\n"${card.question.substring(0, 60)}"`)) {
           await db.deleteCard(card.id);
           await this.loadData();
           this.updateBrowsePage();
         }
       });
 
-      // Zoom für Bilder
+      // Bild-Zoom
       item.querySelectorAll('.card-list-image.zoomable').forEach(img => {
-        img.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._lightboxOpen(img.src);
-        });
+        img.addEventListener('click', (e) => { e.stopPropagation(); this._lightboxOpen(img.src); });
       });
 
       list.appendChild(item);
     });
-
-    // Suche live (nur einmal registrieren)
-    if (!searchInput._listenerAdded) {
-      searchInput.addEventListener('input', () => this.updateBrowsePage());
-      searchInput._listenerAdded = true;
-    }
   }
 
-  // ===== BROWSE TOOLBAR (Mehrfachauswahl-Aktionen) =====
-  renderBrowseToolbar() {
-    let toolbar = document.getElementById('browse-toolbar');
-    if (!toolbar) {
-      toolbar = document.createElement('div');
-      toolbar.id = 'browse-toolbar';
-      toolbar.className = 'browse-toolbar';
-      const browseHeader = document.querySelector('#page-browse .page-header');
-      browseHeader.insertAdjacentElement('afterend', toolbar);
-    }
-
-    const count = this.selectedCardIds.size;
-
-    if (count === 0) {
-      toolbar.innerHTML = `
-        <div class="toolbar-hint">☑️ Checkbox antippen für Mehrfachauswahl</div>
-      `;
-      return;
-    }
-
-    // Alle vorhandenen Themen für Datalist
-    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
-    const catOptions = categories.map(c => `<option value="${c}">`).join('');
-
-    toolbar.innerHTML = `
-      <div class="toolbar-selection-info">
-        <strong>${count} Karte${count > 1 ? 'n' : ''} ausgewählt</strong>
-        <button id="toolbar-deselect-all" class="btn-text">✕ Auswahl aufheben</button>
-      </div>
-      <div class="toolbar-actions">
-        <button id="toolbar-delete-selected" class="btn-danger-small">
-          🗑️ ${count} löschen
-        </button>
-        <div class="toolbar-category-wrap">
-          <input
-            type="text"
-            id="toolbar-category-input"
-            list="toolbar-category-suggestions"
-            placeholder="Thema für Auswahl..."
-            class="toolbar-category-input"
-          >
-          <datalist id="toolbar-category-suggestions">${catOptions}</datalist>
-          <button id="toolbar-set-category" class="btn-primary-small">
-            🏷️ Thema setzen
-          </button>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('toolbar-deselect-all').addEventListener('click', () => {
-      this.selectedCardIds.clear();
-      this.updateBrowsePage();
-    });
-
-    document.getElementById('toolbar-delete-selected').addEventListener('click', async () => {
-      if (confirm(`${count} Karte${count > 1 ? 'n' : ''} wirklich löschen?`)) {
-        for (const id of this.selectedCardIds) {
-          await db.deleteCard(id);
-        }
-        this.selectedCardIds.clear();
-        await this.loadData();
-        this.updateBrowsePage();
-      }
-    });
-
-    document.getElementById('toolbar-set-category').addEventListener('click', async () => {
-      const newCat = document.getElementById('toolbar-category-input').value.trim();
-      if (!newCat) {
-        alert('Bitte ein Thema eingeben.');
-        return;
-      }
-      for (const id of this.selectedCardIds) {
-        const card = this.currentCards.find(c => c.id === id);
-        if (card) {
-          card.category = newCat;
-          await db.saveCard(card);
-        }
-      }
-      this.selectedCardIds.clear();
-      await this.loadData();
-      this.updateBrowsePage();
-      alert(`✅ Thema für ${count} Karte${count > 1 ? 'n' : ''} geändert.`);
-    });
-  }
-
-  // ===== EDIT-MODAL =====
+  // ===== EDIT-MODAL (fixed, über Navbar) =====
   openEditModal(card) {
-    // Modal falls vorhanden entfernen
     document.getElementById('edit-modal')?.remove();
 
     const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
@@ -596,36 +635,30 @@ class App {
           <h2>✏️ Karte bearbeiten</h2>
           <button id="edit-modal-close" class="modal-close-btn">✕</button>
         </div>
-
-        <div class="form-group">
-          <label>Kategorie / Thema</label>
-          <input type="text" id="edit-category"
-            list="edit-category-suggestions"
-            value="${this.escapeHtml(card.category)}"
-            class="edit-input"
-          >
-          <datalist id="edit-category-suggestions">${catOptions}</datalist>
+        <div class="modal-scroll">
+          <div class="form-group">
+            <label>Kategorie / Thema</label>
+            <input type="text" id="edit-category" list="edit-category-suggestions"
+              value="${this.escapeHtml(card.category)}" class="edit-input">
+            <datalist id="edit-category-suggestions">${catOptions}</datalist>
+          </div>
+          <div class="form-group">
+            <label>Frage</label>
+            <textarea id="edit-question" rows="3" class="edit-input">${this.escapeHtml(card.question)}</textarea>
+          </div>
+          <div class="form-group">
+            <label>Antwort</label>
+            <textarea id="edit-answer" rows="4" class="edit-input">${this.escapeHtml(card.answer || '')}</textarea>
+          </div>
+          <div class="form-group">
+            <label>Bilder (Antwortseite)</label>
+            <div id="edit-image-preview" class="image-preview"></div>
+            <button type="button" id="edit-upload-btn" class="btn-secondary" style="margin-top:8px">
+              📷 Bild hinzufügen
+            </button>
+            <input type="file" id="edit-image-input" accept="image/*" multiple class="hidden">
+          </div>
         </div>
-
-        <div class="form-group">
-          <label>Frage</label>
-          <textarea id="edit-question" rows="3" class="edit-input">${this.escapeHtml(card.question)}</textarea>
-        </div>
-
-        <div class="form-group">
-          <label>Antwort</label>
-          <textarea id="edit-answer" rows="4" class="edit-input">${this.escapeHtml(card.answer || '')}</textarea>
-        </div>
-
-        <div class="form-group">
-          <label>Bilder (Antwortseite)</label>
-          <div id="edit-image-preview" class="image-preview"></div>
-          <button type="button" id="edit-upload-btn" class="btn-secondary" style="margin-top:8px">
-            📷 Bild hinzufügen
-          </button>
-          <input type="file" id="edit-image-input" accept="image/*" multiple class="hidden">
-        </div>
-
         <div class="modal-footer">
           <button id="edit-cancel-btn" class="btn-secondary">Abbrechen</button>
           <button id="edit-save-btn" class="btn-primary">💾 Speichern</button>
@@ -635,7 +668,6 @@ class App {
 
     document.body.appendChild(modal);
 
-    // Bilder anzeigen (mit Lösch-Option)
     let editImages = [...(card.images || [])];
     const renderEditImages = () => {
       const preview = document.getElementById('edit-image-preview');
@@ -648,10 +680,7 @@ class App {
         const removeBtn = document.createElement('button');
         removeBtn.textContent = '✕';
         removeBtn.type = 'button';
-        removeBtn.onclick = () => {
-          editImages.splice(i, 1);
-          renderEditImages();
-        };
+        removeBtn.onclick = () => { editImages.splice(i, 1); renderEditImages(); };
         wrapper.appendChild(img);
         wrapper.appendChild(removeBtn);
         preview.appendChild(wrapper);
@@ -659,7 +688,6 @@ class App {
     };
     renderEditImages();
 
-    // Bild-Upload im Modal
     document.getElementById('edit-upload-btn').addEventListener('click', () => {
       document.getElementById('edit-image-input').click();
     });
@@ -672,90 +700,149 @@ class App {
       renderEditImages();
     });
 
-    // Schließen
     const closeModal = () => modal.remove();
     document.getElementById('edit-modal-close').addEventListener('click', closeModal);
     document.getElementById('edit-cancel-btn').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
-    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-    // Speichern
     document.getElementById('edit-save-btn').addEventListener('click', async () => {
       const newQuestion = document.getElementById('edit-question').value.trim();
       const newAnswer = document.getElementById('edit-answer').value.trim();
       const newCategory = document.getElementById('edit-category').value.trim();
 
-      if (!newQuestion || !newCategory) {
-        alert('Frage und Kategorie dürfen nicht leer sein.');
-        return;
-      }
-      if (!newAnswer && editImages.length === 0) {
-        alert('Bitte Antwort eingeben oder Bild hinzufügen.');
-        return;
-      }
+      if (!newQuestion || !newCategory) { alert('Frage und Kategorie dürfen nicht leer sein.'); return; }
+      if (!newAnswer && editImages.length === 0) { alert('Bitte Antwort eingeben oder Bild hinzufügen.'); return; }
 
-      const updatedCard = {
-        ...card,
-        question: newQuestion,
-        answer: newAnswer,
-        category: newCategory,
-        images: editImages,
-        timestamp: new Date().toISOString()
-      };
-
-      await db.saveCard(updatedCard);
+      await db.saveCard({ ...card, question: newQuestion, answer: newAnswer, category: newCategory, images: editImages, timestamp: new Date().toISOString() });
       await this.loadData();
       closeModal();
       this.updateBrowsePage();
     });
   }
 
-  // HTML-Sonderzeichen escapen (für modal value="...")
   escapeHtml(str) {
     return (str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   // ===== HEUTE FÄLLIG =====
   async markCardDueToday(cardId, itemElement) {
     const progress = this.progressMap.get(cardId) || {};
-    const updated = {
-      ...progress,
-      cardId,
-      nextReview: Date.now() - 1000
-    };
-    await db.saveProgress(cardId, updated);
-    this.progressMap.set(cardId, updated);
+    await db.saveProgress(cardId, { ...progress, cardId, nextReview: Date.now() - 1000 });
+    this.progressMap.set(cardId, { ...progress, cardId, nextReview: Date.now() - 1000 });
 
     itemElement.classList.add('card-marked-due');
-    const actionsDiv = itemElement.querySelector('.card-list-header-actions');
-    if (actionsDiv) {
-      const btn = actionsDiv.querySelector('.btn-due-today');
-      if (btn) btn.replaceWith(Object.assign(
-        document.createElement('span'), {
-          className: 'badge-due',
-          textContent: 'fällig ✅'
-        }
-      ));
-    }
+    const btn = itemElement.querySelector('.btn-due-today');
+    if (btn) btn.replaceWith(Object.assign(document.createElement('span'), { className: 'badge-due', textContent: '✅ fällig' }));
 
     await this.loadData();
-    const badge = document.getElementById('cards-due-badge');
-    badge.textContent = `${this.dueCards.length} fällig`;
+    document.getElementById('cards-due-badge').textContent = `${this.dueCards.length} fällig`;
   }
 
+  // ===== STATISTIK =====
   updateStats() {
-    const due = spacedRep.getDueCards(this.currentCards, this.progressMap);
-    const learned = Array.from(this.progressMap.values())
-      .filter(p => p.repetitions > 0).length;
+    const now = Date.now();
+    const tomorrow = now + 24 * 60 * 60 * 1000;
+    const in7days = now + 7 * 24 * 60 * 60 * 1000;
+
+    const due = this.currentCards.filter(c => {
+      const p = this.progressMap.get(c.id);
+      return !p || p.nextReview <= now;
+    });
+
+    const dueTomorrow = this.currentCards.filter(c => {
+      const p = this.progressMap.get(c.id);
+      return p && p.nextReview > now && p.nextReview <= tomorrow;
+    });
+
+    const dueIn7 = this.currentCards.filter(c => {
+      const p = this.progressMap.get(c.id);
+      return p && p.nextReview > now && p.nextReview <= in7days;
+    });
+
+    const learned = Array.from(this.progressMap.values()).filter(p => p.repetitions > 0).length;
+    const mastered = Array.from(this.progressMap.values()).filter(p => p.repetitions >= 3).length;
+
+    // Streak berechnen
+    const streak = this.calculateStreak();
 
     document.getElementById('stat-total').textContent = this.currentCards.length;
     document.getElementById('stat-due').textContent = due.length;
     document.getElementById('stat-learned').textContent = learned;
+    document.getElementById('stat-streak').textContent = streak;
+
+    // Neue Felder
+    const setIfExists = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    setIfExists('stat-tomorrow', dueTomorrow.length);
+    setIfExists('stat-week', dueIn7.length);
+    setIfExists('stat-mastered', mastered);
+
+    // Kategorie-Statistik
+    this.renderCategoryStats();
+  }
+
+  calculateStreak() {
+    const reviewDays = new Set(
+      Array.from(this.progressMap.values())
+        .filter(p => p.lastReview)
+        .map(p => new Date(p.lastReview).toDateString())
+    );
+
+    let streak = 0;
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      if (reviewDays.has(d.toDateString())) streak++;
+      else if (i > 0) break;
+    }
+    return streak;
+  }
+
+  renderCategoryStats() {
+    const container = document.getElementById('category-stats');
+    if (!container) return;
+
+    const categories = [...new Set(this.currentCards.map(c => c.category))].sort();
+
+    if (categories.length === 0) {
+      container.innerHTML = '<p style="color:var(--mid);font-size:14px;">Noch keine Karten vorhanden.</p>';
+      return;
+    }
+
+    const now = Date.now();
+    container.innerHTML = '';
+
+    categories.forEach(cat => {
+      const cards = this.currentCards.filter(c => c.category === cat);
+      const due = cards.filter(c => {
+        const p = this.progressMap.get(c.id);
+        return !p || p.nextReview <= now;
+      }).length;
+      const mastered = cards.filter(c => {
+        const p = this.progressMap.get(c.id);
+        return p && p.repetitions >= 3;
+      }).length;
+
+      const pct = cards.length > 0 ? Math.round((mastered / cards.length) * 100) : 0;
+
+      const row = document.createElement('div');
+      row.className = 'category-stat-row';
+      row.innerHTML = `
+        <div class="category-stat-header">
+          <span class="category-stat-name">${cat}</span>
+          <span class="category-stat-numbers">${due} fällig · ${mastered}/${cards.length} gemeistert</span>
+        </div>
+        <div class="category-progress-bar">
+          <div class="category-progress-fill" style="width:${pct}%"></div>
+        </div>
+      `;
+      container.appendChild(row);
+    });
   }
 }
 

@@ -137,6 +137,19 @@ class Database {
       if (cards.length === 0) resolve(0);
     });
   }
+
+
+  // Gesamten Lernfortschritt löschen
+  async clearProgress() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('progress', 'readwrite');
+      const store = tx.objectStore('progress');
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
 }
 
 // Globale Datenbankinstanz
