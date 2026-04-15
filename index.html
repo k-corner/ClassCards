@@ -302,53 +302,64 @@
         <h1>Meine Statistik</h1>
       </div>
 
-      <!-- SEITE: STATISTIK -->
-<section id="page-stats" class="page hidden">
-  <div class="page-header">
-    <h1>Meine Statistik</h1>
-  </div>
+      <!-- Zeile 1: Heute & Morgen -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="stat-total">0</div>
+          <div class="stat-label">Karten gesamt</div>
+        </div>
+        <div class="stat-card stat-card-orange">
+          <div class="stat-number" id="stat-due">0</div>
+          <div class="stat-label">Heute fällig</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-tomorrow">0</div>
+          <div class="stat-label">Morgen fällig</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-week">0</div>
+          <div class="stat-label">Diese Woche</div>
+        </div>
+      </div>
 
-  <!-- Zeile 1: Heute & Morgen -->
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-number" id="stat-total">0</div>
-      <div class="stat-label">Karten gesamt</div>
-    </div>
-    <div class="stat-card stat-card-orange">
-      <div class="stat-number" id="stat-due">0</div>
-      <div class="stat-label">Heute fällig</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-number" id="stat-tomorrow">0</div>
-      <div class="stat-label">Morgen fällig</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-number" id="stat-week">0</div>
-      <div class="stat-label">Diese Woche</div>
-    </div>
-  </div>
+      <!-- Zeile 2: Fortschritt -->
+      <div class="stats-grid" style="margin-top:0">
+        <div class="stat-card stat-card-green">
+          <div class="stat-number" id="stat-learned">0</div>
+          <div class="stat-label">Schon gelernt</div>
+        </div>
+        <div class="stat-card stat-card-purple">
+          <div class="stat-number" id="stat-mastered">0</div>
+          <div class="stat-label">Gemeistert (≥3×)</div>
+        </div>
+        <div class="stat-card stat-card-gold">
+          <div class="stat-number" id="stat-streak">0</div>
+          <div class="stat-label">🔥 Tage in Folge</div>
+        </div>
+      </div>
 
-  <!-- Zeile 2: Fortschritt -->
-  <div class="stats-grid" style="margin-top:0">
-    <div class="stat-card stat-card-green">
-      <div class="stat-number" id="stat-learned">0</div>
-      <div class="stat-label">Schon gelernt</div>
-    </div>
-    <div class="stat-card stat-card-purple">
-      <div class="stat-number" id="stat-mastered">0</div>
-      <div class="stat-label">Gemeistert (≥3×)</div>
-    </div>
-    <div class="stat-card stat-card-gold">
-      <div class="stat-number" id="stat-streak">0</div>
-      <div class="stat-label">🔥 Tage in Folge</div>
-    </div>
-  </div>
+      <!-- Kategorie-Statistik -->
+      <div class="stats-section">
+        <h2>Nach Kategorie</h2>
+        <div id="category-stats"></div>
+      </div>
 
-  <div class="stats-section">
-    <h2>Nach Kategorie</h2>
-    <div id="category-stats"></div>
-  </div>
-</section>
+      <!-- Info-Block -->
+      <div class="app-info-block">
+        <p><strong>ClassCards</strong> v0.9</p>
+        <p>Open-Source-Software:</p>
+        <p>
+          <strong>DOMPurify</strong><br>
+          Copyright © Mario Heiderich, Apache License 2.0<br>
+          <a href="https://github.com/cure53/DOMPurify"
+            target="_blank" rel="noopener">
+            github.com/cure53/DOMPurify
+          </a>
+        </p>
+      </div>
+
+    </section>
+
 
 
   </main>

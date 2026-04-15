@@ -472,7 +472,6 @@ class App {
         <button id="toolbar-delete-selected" class="btn-action-danger">
           🗑️ Löschen
         </button>
-        // In der toolbar-actions div, nach dem Löschen-Button einfügen:
         <button id="toolbar-set-due" class="btn-action-primary">
         📅 Fällig setzen
         </button>
