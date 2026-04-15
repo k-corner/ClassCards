@@ -39,6 +39,51 @@ class SyncManager {
 
   // ===== IMPORT =====
 
+  // ===== NEUE METHODE: JSON-Validierung =====
+  validateImportData(data) {
+    // Grundstruktur prüfen
+    if (typeof data !== 'object' || data === null)
+      throw new Error('Ungültiges Format: Kein gültiges JSON-Objekt.');
+    if (!Array.isArray(data.cards))
+      throw new Error('Ungültiges Format: "cards" fehlt oder ist kein Array.');
+    if (data.cards.length > 10000)
+      throw new Error('Zu viele Karten (max. 10.000).');
+
+    // Jede Karte einzeln prüfen
+    data.cards.forEach((card, index) => {
+      if (typeof card !== 'object' || card === null)
+        throw new Error(`Karte ${index}: Ungültiges Format.`);
+      if (typeof card.id !== 'number')
+        throw new Error(`Karte ${index}: Ungültige ID.`);
+      if (typeof card.question !== 'string' || card.question.trim() === '')
+        throw new Error(`Karte ${index}: Frage fehlt oder ist leer.`);
+      if (card.question.length > 5000)
+        throw new Error(`Karte ${index}: Frage zu lang (max. 5000 Zeichen).`);
+      if (card.answer && typeof card.answer !== 'string')
+        throw new Error(`Karte ${index}: Antwort ungültig.`);
+      if (card.images && !Array.isArray(card.images))
+        throw new Error(`Karte ${index}: Bilder-Format ungültig.`);
+
+      // Bilder: Nur echte Base64-Bilder erlauben
+      if (card.images) {
+        card.images.forEach((img, imgIndex) => {
+          if (typeof img !== 'string')
+            throw new Error(`Karte ${index}, Bild ${imgIndex}: Kein String.`);
+          if (!img.startsWith('data:image/'))
+            throw new Error(`Karte ${index}, Bild ${imgIndex}: Kein gültiges Bild-Format.`);
+          // Maximale Bildgröße: 5MB pro Bild
+          if (img.length > 7 * 1024 * 1024)
+            throw new Error(`Karte ${index}, Bild ${imgIndex}: Bild zu groß (max. 5 MB).`);
+        });
+      }
+    });
+
+    return true;
+  }
+  // ===== ENDE NEUE METHODE =====
+
+
+
   // Karteidatenbank importieren (Merge mit lokalen Daten)
   async importDatabase(file) {
     const text = await file.text();
@@ -53,6 +98,10 @@ class SyncManager {
     if (!importData.cards || !Array.isArray(importData.cards)) {
       throw new Error('Ungültiges Format: Keine Karteikarten gefunden');
     }
+
+    // ===== NEU: VOLLSTÄNDIGE VALIDIERUNG =====
+    this.validateImportData(importData);
+
 
     // Lokale Karten laden
     const localCards = await db.getAllCards();

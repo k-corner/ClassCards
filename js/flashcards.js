@@ -17,6 +17,18 @@ class FlashcardManager {
     };
   }
 
+    // ===== NEUE METHODE: Bildvalidierung =====
+  validateImageType(file) {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error(`Dateityp "${file.type}" nicht erlaubt. Nur JPEG, PNG, GIF, WebP.`);
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      throw new Error('Bild zu groß. Maximal 20 MB.');
+    }
+  }
+  // ===== ENDE NEUE METHODE =====
+
   // Karteikarte speichern
   async saveCard(data) {
     const card = this.createCard(data);

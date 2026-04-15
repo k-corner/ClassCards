@@ -26,6 +26,15 @@ class App {
     console.log('ClassCards gestartet ✅');
   }
 
+  // Zentrale Hilfsfunktion – einmal definieren, überall nutzen
+  safe(html) {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'br', 'span'],
+    ALLOWED_ATTR: ['class']
+  });
+  }
+
+
   async checkPrivacyConsent() {
     const accepted = await db.getSetting('privacyAccepted');
     if (!accepted) {
@@ -145,9 +154,9 @@ class App {
     const card = this.dueCards[this.currentCardIndex];
     document.getElementById('card-category').textContent = card.category;
     document.getElementById('card-question').innerHTML =
-      cardManager.renderFormulas(card.question);
+      this.safe(cardManager.renderFormulas(card.question));
     document.getElementById('card-answer').innerHTML =
-      cardManager.renderFormulas(card.answer || '');
+      this.safe(cardManager.renderFormulas(card.answer || ''));
 
     const imgFront = document.getElementById('card-images-front');
     this.renderImages(imgFront, card.frontImages || []);
@@ -162,19 +171,38 @@ class App {
 
   // ===== KARTE HINZUFÜGEN =====
   setupAddPage() {
-    document.getElementById('upload-image-btn').addEventListener('click', () => {
-      document.getElementById('image-input').click();
-    });
-
+    // ===== NEU: DATENSCHUTZ-WARNUNG BEIM UPLOAD =====
+  document.getElementById('upload-image-btn').addEventListener('click', () => {
+    if (this.pendingImages.length === 0) {
+      const ok = confirm(
+        '📷 Bild hochladen\n\n' +
+        'Bitte stelle sicher, dass das Bild:\n' +
+        '✅ Nur schulische Inhalte zeigt\n' +
+        '✅ Keine erkennbaren Personen enthält\n' +
+        '✅ Nicht urheberrechtlich geschützt ist\n\n' +
+        'Fortfahren?'
+      );
+      if (!ok) return;
+    }
+    document.getElementById('image-input').click();
+  });
+  // ===== ENDE DATENSCHUTZ-WARNUNG =====
+    
     document.getElementById('image-input').addEventListener('change', async (e) => {
       for (const file of e.target.files) {
-        const base64 = await cardManager.imageToBase64(file);
-        const compressed = await cardManager.compressImage(base64);
-        this.pendingImages.push(compressed);
-        this.updateImagePreview();
+        try {
+          cardManager.validateImageType(file); // NEU: Validierung
+          const base64 = await cardManager.imageToBase64(file);
+          const compressed = await cardManager.compressImage(base64);
+          this.pendingImages.push(compressed);
+          this.updateImagePreview();
+        } catch (err) {
+          alert(`❌ Bild übersprungen: ${err.message}`);
+        }
       }
       this.updateAnswerRequired();
     });
+
 
     document.getElementById('draw-btn').addEventListener('click', () => {
       document.getElementById('drawing-area').classList.toggle('hidden');
@@ -444,6 +472,10 @@ class App {
         <button id="toolbar-delete-selected" class="btn-action-danger">
           🗑️ Löschen
         </button>
+        // In der toolbar-actions div, nach dem Löschen-Button einfügen:
+        <button id="toolbar-set-due" class="btn-action-primary">
+        📅 Fällig setzen
+        </button>
         <div class="toolbar-category-wrap">
           <input type="text" id="toolbar-category-input"
             list="toolbar-category-suggestions"
@@ -492,6 +524,20 @@ class App {
       this.updateBrowsePage();
       alert(`✅ Thema für ${count} Karte${count > 1 ? 'n' : ''} geändert.`);
     });
+
+    document.getElementById('toolbar-set-due').addEventListener('click', async () => {
+      const ids = [...this.selectedCardIds];
+      for (const id of ids) {
+        const progress = this.progressMap.get(id) || {};
+        await db.saveProgress(id, { ...progress, cardId: id, nextReview: Date.now() - 1000 });
+        this.progressMap.set(id, { ...progress, cardId: id, nextReview: Date.now() - 1000 });
+      }
+    this.selectedCardIds.clear();
+    await this.loadData();
+    this.updateBrowsePage();
+    alert(`✅ ${ids.length} Karte${ids.length > 1 ? 'n' : ''} auf heute fällig gesetzt.`);
+  });
+
   }
 
   // ===== KARTENLISTE RENDERN =====
@@ -529,7 +575,7 @@ class App {
 
       const hasImages = card.images && card.images.length > 0;
       const answerHTML = card.answer
-        ? `<div class="card-list-answer"><strong>Antwort:</strong><br>${cardManager.renderFormulas(card.answer)}</div>`
+        ? `<div class="card-list-answer"><strong>Antwort:</strong><br>${this.safe(cardManager.renderFormulas(card.answer))}</div>`
         : '';
       const imagesHTML = hasImages
         ? card.images.map(src => `<img src="${src}" class="card-list-image zoomable" alt="Kartenbild">`).join('')
@@ -540,7 +586,7 @@ class App {
           <input type="checkbox" class="card-checkbox" data-id="${card.id}" ${isSelected ? 'checked' : ''}>
           <div class="card-list-header-text">
             <div class="card-list-category">${card.category}</div>
-            <div class="card-list-question">${cardManager.renderFormulas(card.question)}</div>
+            <div class="card-list-question">${this.safe(cardManager.renderFormulas(card.question))}</div>
           </div>
           <div class="card-list-header-actions">
             ${!isDueToday
@@ -691,14 +737,20 @@ class App {
     document.getElementById('edit-upload-btn').addEventListener('click', () => {
       document.getElementById('edit-image-input').click();
     });
-    document.getElementById('edit-image-input').addEventListener('change', async (e) => {
+        document.getElementById('edit-image-input').addEventListener('change', async (e) => {
       for (const file of e.target.files) {
-        const base64 = await cardManager.imageToBase64(file);
-        const compressed = await cardManager.compressImage(base64);
-        editImages.push(compressed);
+        try {
+          cardManager.validateImageType(file); // NEU: Validierung
+          const base64 = await cardManager.imageToBase64(file);
+          const compressed = await cardManager.compressImage(base64);
+          editImages.push(compressed);
+        } catch (err) {
+          alert(`❌ ${err.message}`);
+        }
       }
       renderEditImages();
     });
+
 
     const closeModal = () => modal.remove();
     document.getElementById('edit-modal-close').addEventListener('click', closeModal);
@@ -830,17 +882,19 @@ class App {
 
       const pct = cards.length > 0 ? Math.round((mastered / cards.length) * 100) : 0;
 
-      const row = document.createElement('div');
+            const row = document.createElement('div');
       row.className = 'category-stat-row';
       row.innerHTML = `
         <div class="category-stat-header">
-          <span class="category-stat-name">${cat}</span>
+          <span class="category-stat-name"></span>
           <span class="category-stat-numbers">${due} fällig · ${mastered}/${cards.length} gemeistert</span>
         </div>
         <div class="category-progress-bar">
           <div class="category-progress-fill" style="width:${pct}%"></div>
         </div>
       `;
+      // NEU: textContent statt innerHTML für den Kategorienamen (sicher!)
+      row.querySelector('.category-stat-name').textContent = cat;
       container.appendChild(row);
     });
   }
